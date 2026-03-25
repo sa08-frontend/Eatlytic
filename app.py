@@ -4,7 +4,6 @@ import requests
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
-import os
 
 # Load environment variables
 load_dotenv()
@@ -47,13 +46,26 @@ def analyze_food():
         data = request.get_json()
 
         if not data:
-            return jsonify({"error": "No data provided"}), 400
+            return jsonify({
+                "success": False,
+                "error": "No data provided"
+            }), 400
 
         image_data = data.get("imageDataUrl")
         language_code = data.get("language", "en")
 
         if not image_data:
-            return jsonify({"error": "Image not provided"}), 400
+            return jsonify({
+                "success": False,
+                "error": "Image not provided"
+            }), 400
+        
+        # Validate image data format
+        if not image_data.startswith("data:image"):
+            return jsonify({
+                "success": False,
+                "error": "Invalid image format. Image must be a base64 data URL."
+            }), 400
 
         language_name = LANGUAGE_NAMES.get(language_code, "English")
 
@@ -100,9 +112,12 @@ Respond in {language_name}.
         response = requests.post(
             OPENROUTER_API_URL,
             headers=headers,
-            json=payload
+            json=payload,
+            timeout=30
         )
 
+        print(f"OpenRouter API Response Status: {response.status_code}")
+        
         if response.status_code == 401:
             return jsonify({
                 "success": False,
@@ -110,13 +125,23 @@ Respond in {language_name}.
             }), 401
 
         if not response.ok:
+            error_details = response.text
+            print(f"OpenRouter API Error: {error_details}")
             return jsonify({
                 "success": False,
                 "error": "OpenRouter API error",
-                "details": response.text
+                "details": error_details,
+                "status": response.status_code
             }), response.status_code
 
         result = response.json()
+
+        if "choices" not in result or len(result["choices"]) == 0:
+            return jsonify({
+                "success": False,
+                "error": "Unexpected API response format",
+                "details": str(result)
+            }), 500
 
         analysis = result["choices"][0]["message"]["content"]
 
@@ -126,10 +151,14 @@ Respond in {language_name}.
         })
 
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error occurred: {error_trace}")
         return jsonify({
             "success": False,
             "error": "Server error",
-            "details": str(e)
+            "details": str(e),
+            "type": type(e).__name__
         }), 500
 
 
